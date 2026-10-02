@@ -15,12 +15,11 @@ ESCALATION_S = 30
 
 
 class WarningSystem:
-    def __init__(self):
-        self.towers = [
-            {"id": "Tower 1 — North", "light": "green"},
-            {"id": "Tower 2 — South", "light": "green"},
-            {"id": "Pool Deck Post", "light": "green"},
-        ]
+    def __init__(self, towers=None, escalate_to="ALL TOWERS", ack_by="lifeguard"):
+        names = towers or ["Tower 1 — North", "Tower 2 — South", "Pool Deck Post"]
+        self.towers = [{"id": n, "light": "green"} for n in names]
+        self.escalate_to = escalate_to
+        self.ack_by = ack_by
         self.siren = False
         self.pa_message = ""
         self.pa_active = False
@@ -60,7 +59,7 @@ class WarningSystem:
         self.pa_message = message
         self.pa_active = True
         self._say(f"ALERT #{alert['id']} [{alert['severity']}] {message}")
-        self._say("Tower lights -> RED, siren ON, PA broadcast armed")
+        self._say(f"Posts -> RED, siren ON, broadcast armed ({self.escalate_to})")
         self.notify_guards(message)
         return alert
 
@@ -73,7 +72,8 @@ class WarningSystem:
                 return a
         return None
 
-    def ack(self, alert_id, by="lifeguard"):
+    def ack(self, alert_id, by=None):
+        by = by or self.ack_by
         for a in self.alerts:
             if a["id"] == alert_id and not a["acked"]:
                 a["acked"] = True
@@ -95,10 +95,10 @@ class WarningSystem:
                 a["escalated"] = True
                 for tw in self.towers:
                     tw["light"] = "red-strobe"
-                self.pa_message = a["message"] + " NO ACK — ESCALATING TO ALL TOWERS."
+                self.pa_message = a["message"] + f" NO ACK — ESCALATING TO {self.escalate_to}."
                 self.pa_active = True
                 self._say(f"ALERT #{a['id']} unacked for {ESCALATION_S}s "
-                          "-> ESCALATED to all towers")
+                          f"-> ESCALATED to {self.escalate_to}")
                 self.notify_guards("ESCALATION: " + a["message"])
 
     def active(self):
@@ -111,4 +111,5 @@ class WarningSystem:
             "pa_message": self.pa_message,
             "pa_active": self.pa_active,
             "alerts": self.alerts[-10:],
+            "escalate_to": self.escalate_to,
         }

@@ -75,7 +75,7 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) 380px;
     grid-template-rows: minmax(0, 1fr) 180px;
-    height: calc(100vh - 72px);
+    height: calc(100vh - 128px);
     gap: 10px;
     padding: 10px;
   }
@@ -93,7 +93,11 @@
     grid-template-columns: 2.4fr 1fr;
     grid-template-rows: 1fr 1fr 1fr;
   }
-  #grid.hero .cam.live { grid-row: 1 / span 3; }
+  #grid.hero .cam.hot { grid-row: 1 / span 3; }
+  #grid.n1 { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  #grid.n2 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+  #grid.n2.hero { grid-template-columns: 2.2fr 1fr; grid-template-rows: 1fr; }
+  #grid.n2.hero .cam.hot { grid-row: auto; }
   .cam {
     position: relative;
     background: #000;
@@ -237,6 +241,38 @@
     margin-bottom: 6px; color: var(--dim);
   }
   #pa.live .flag { color: #ffd0d0; }
+
+  #sitebar {
+    display: flex; align-items: stretch; gap: 12px;
+    padding: 0 12px; border-bottom: 2px solid var(--line);
+    background: #070b12; min-height: 56px;
+    position: relative; z-index: 50;
+  }
+  #sites { display: flex; flex: 1; gap: 0; }
+  #sites button {
+    flex: 1; background: #0b1018; color: var(--dim);
+    border: 0; border-bottom: 4px solid transparent;
+    font-weight: 800; letter-spacing: 1.5px; padding: 10px 12px;
+    cursor: pointer; font-size: 16px; display: flex;
+    align-items: center; justify-content: center; gap: 10px;
+  }
+  #sites button:hover { background: #121a28; color: var(--txt); }
+  #sites button.on { color: #fff; background: #152036; border-bottom-color: var(--blue); }
+  #sites button.hot { color: #fff; border-bottom-color: var(--red); background: #2a0a0a; }
+  #sites button .pill {
+    font-size: 11px; letter-spacing: 1px; padding: 3px 8px;
+    border: 1px solid var(--green); color: var(--green);
+  }
+  #sites button.hot .pill { border-color: var(--red); color: #fff; background: var(--red); }
+  #toolrow { display: flex; gap: 8px; margin-left: auto; }
+  .tool {
+    font-size: 10px; font-weight: 800; letter-spacing: 1px;
+    padding: 3px 7px; border: 1px solid var(--line); color: var(--dim);
+    white-space: nowrap;
+  }
+  .tool.live { color: var(--green); border-color: var(--green); }
+  .tool.ready { color: var(--amber); border-color: var(--amber); }
+  .tool.fallback { color: var(--dim); }
 </style>
 </head>
 <body class="clear">
@@ -247,34 +283,17 @@
     <span class="ico" id="sysico">●</span>
     <span id="syslabel">ALL CLEAR</span>
   </div>
-  <div class="chip"><small>Cameras</small><b id="camcount">4 LIVE</b></div>
-  <div class="chip"><small>Models</small><b id="models">YOLO · COSMOS</b></div>
+  <div class="chip"><small>Site</small><b id="sitelabel">FAMILY POOL</b></div>
+  <div class="chip"><small>Cameras</small><b id="camcount">—</b></div>
   <div class="chip"><small>T+ clock</small><b id="clock">00:00</b></div>
 </header>
+<div id="sitebar">
+  <div id="sites"></div>
+  <div id="toolrow"></div>
+</div>
 
 <div id="layout">
-  <section id="grid">
-    <article class="cam live" id="cam-01">
-      <canvas id="feed" width="640" height="480"></canvas>
-      <div class="camtag">CAM-01  POOL DECK 1</div>
-      <div class="camstatus" id="cam01status">✓ ALL CLEAR</div>
-    </article>
-    <article class="cam" id="cam-02">
-      <div class="poster"></div>
-      <div class="camtag">CAM-02  POOL LANE 2</div>
-      <div class="camstatus">✓ ALL CLEAR</div>
-    </article>
-    <article class="cam" id="cam-03">
-      <div class="poster"></div>
-      <div class="camtag">CAM-03  BEACH NORTH</div>
-      <div class="camstatus">✓ ALL CLEAR</div>
-    </article>
-    <article class="cam" id="cam-04">
-      <div class="poster"></div>
-      <div class="camtag">CAM-04  TOWER 2 SOUTH</div>
-      <div class="camstatus">✓ ALL CLEAR</div>
-    </article>
-  </section>
+  <section id="grid"></section>
 
   <aside>
     <div class="panel">
@@ -297,7 +316,7 @@
 
   <section id="warn">
     <div class="panel">
-      <h2>TOWER LIGHTS</h2>
+      <h2 id="warntitle">TOWER LIGHTS</h2>
       <div id="towers"></div>
     </div>
     <div class="panel">
@@ -306,7 +325,7 @@
       <button id="sirenbtn">TOGGLE SIREN</button>
     </div>
     <div class="panel">
-      <h2>PUBLIC ADDRESS</h2>
+      <h2 id="patitle">PUBLIC ADDRESS</h2>
       <div id="pa"><span class="flag">BROADCAST STANDBY</span>No message armed.</div>
     </div>
   </section>
@@ -314,22 +333,47 @@
 
 <script>
 const STEPS = ["DETECTED", "VERIFYING", "ALERTED", "ACKNOWLEDGED", "RESOLVED"];
-const cv = document.getElementById("feed");
-const cx = cv.getContext("2d");
-const img = new Image();
 let currentAlertIds = [];
 let lastT = 0;
+let siteMeta = { pa_prefix: "Attention.", pa_standby: "No message armed.", escalate_to: "ALL POSTS" };
+let camCanvases = {};
 
-function setMode(incident) {
+function ensureGrid(cameras, siteId) {
+  const grid = document.getElementById("grid");
+  const key = siteId + "|" + cameras.map(c => c.id + ":" + c.name).join("|");
+  if (grid.dataset.ids === key) return;
+  grid.dataset.ids = key;
+  grid.className = "n" + cameras.length;
+  grid.innerHTML = cameras.map(c =>
+    `<article class="cam${c.incident ? " live" : ""}" id="${siteId}-${c.id}">
+       <canvas width="640" height="480"></canvas>
+       <div class="camtag">${c.id.toUpperCase()}  ${c.name}</div>
+       <div class="camstatus">✓ ALL CLEAR</div>
+     </article>`
+  ).join("");
+  camCanvases = {};
+  cameras.forEach(c => {
+    const el = document.getElementById(siteId + "-" + c.id);
+    camCanvases[c.id] = { cv: el.querySelector("canvas"), img: new Image() };
+  });
+}
+
+function setMode(incident, hotId) {
   document.body.classList.toggle("incident", incident);
   document.body.classList.toggle("clear", !incident);
   const st = document.getElementById("sysstate");
   st.classList.toggle("clear", !incident);
   document.getElementById("sysico").textContent = incident ? "▲" : "●";
   document.getElementById("syslabel").textContent = incident ? "INCIDENT" : "ALL CLEAR";
-  document.getElementById("grid").classList.toggle("hero", incident);
-  document.getElementById("cam-01").classList.toggle("hot", incident);
-  document.getElementById("cam01status").textContent = incident ? "▲ INCIDENT — FALL / DROWNING WATCH" : "✓ ALL CLEAR";
+  const grid = document.getElementById("grid");
+  grid.classList.toggle("hero", incident);
+  document.querySelectorAll(".cam").forEach(el => {
+    const camId = el.id.split("-").slice(1).join("-");
+    const hot = incident && camId === hotId;
+    el.classList.toggle("hot", hot);
+    el.querySelector(".camstatus").textContent = hot
+      ? "▲ INCIDENT — FALL / DROWNING WATCH" : "✓ ALL CLEAR";
+  });
 }
 
 function lifecycle(warning, events) {
@@ -368,7 +412,7 @@ function renderCountdown(warning) {
   const a = unacked[unacked.length - 1];
   if (a.escalated) {
     el.classList.add("hot");
-    el.innerHTML = "<small>ESCALATED</small>ALL TOWERS";
+    el.innerHTML = `<small>ESCALATED</small>${siteMeta.escalate_to || "ALL POSTS"}`;
     return;
   }
   const remain = Math.max(0, 30 - (Date.now() / 1000 - a.created_wall));
@@ -383,21 +427,18 @@ function renderWarning(w) {
   document.getElementById("towers").innerHTML = w.towers.map(t =>
     `<div class="tower"><span class="dot ${t.light}"></span>${t.id}<span class="tlabel">${lightIco[t.light] || "●"} ${lightWord[t.light] || t.light.toUpperCase()}</span></div>`
   ).join("");
-
   const sirenOn = !!w.siren;
   document.getElementById("sirenlabel").textContent = sirenOn ? "🔊 SIREN ON" : "🔇 SIREN OFF";
   document.getElementById("sirenbtn").classList.toggle("on", sirenOn);
   document.getElementById("sirenbtn").textContent = sirenOn ? "SIREN SOUNDING — TOGGLE" : "TOGGLE SIREN";
-
   const pa = document.getElementById("pa");
   if (w.pa_active && w.pa_message) {
     pa.className = "live";
-    pa.innerHTML = `<span class="flag">▲ BROADCAST ACTIVE</span>Attention beachgoers. ${w.pa_message}`;
+    pa.innerHTML = `<span class="flag">▲ BROADCAST ACTIVE</span>${siteMeta.pa_prefix || ""} ${w.pa_message}`;
   } else {
     pa.className = "";
-    pa.innerHTML = `<span class="flag">BROADCAST STANDBY</span>No message armed.`;
+    pa.innerHTML = `<span class="flag">BROADCAST STANDBY</span>${siteMeta.pa_standby || "No message armed."}`;
   }
-
   const unacked = (w.alerts || []).filter(a => !a.acked);
   const btn = document.getElementById("ackbtn");
   if (unacked.length) {
@@ -425,25 +466,85 @@ function renderTimeline(events) {
     `</li>`).join("");
 }
 
+function renderTools(t) {
+  if (!t) return;
+  document.getElementById("toolrow").innerHTML = ["yolo", "cosmos", "wandb", "vast"].map(k => {
+    const s = t[k] || { state: "fallback" };
+    return `<span class="tool ${s.state}" title="${s.detail || ""}">${k.toUpperCase()} ${s.state.toUpperCase()}</span>`;
+  }).join("");
+}
+
+function drawCams(cameras) {
+  cameras.forEach(c => {
+    const slot = camCanvases[c.id];
+    if (!slot || !c.frame) return;
+    const { cv, img } = slot;
+    img.onload = () => cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+    img.src = "data:image/jpeg;base64," + c.frame;
+  });
+}
+
+function renderTabs(tabs, current) {
+  const host = document.getElementById("sites");
+  if (!tabs || !tabs.length) return;
+  if (!host.dataset.ready) {
+    host.innerHTML = tabs.map(s =>
+      `<button data-id="${s.id}"><span class="tname"></span><span class="pill"></span></button>`
+    ).join("");
+    host.dataset.ready = "1";
+    host.querySelectorAll("button").forEach(btn => {
+      btn.onclick = async () => {
+        await fetch("/api/site", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: btn.dataset.id }),
+        });
+        document.getElementById("answers").textContent = "";
+      };
+    });
+  }
+  host.querySelectorAll("button").forEach(btn => {
+    const s = tabs.find(t => t.id === btn.dataset.id);
+    if (!s) return;
+    btn.className = (s.id === current ? "on " : "") + (s.incident ? "hot" : "");
+    btn.querySelector(".tname").textContent = s.label;
+    btn.querySelector(".pill").textContent = s.incident ? (s.severity || "INCIDENT") : "ALL CLEAR";
+  });
+}
+
+async function loadSites(current) {
+  const r = await (await fetch("/api/sites")).json();
+  renderTabs(r.tabs || r.sites, r.current || current);
+}
+
 const ws = new WebSocket(`ws://${location.host}/ws`);
 ws.onmessage = e => {
   const m = JSON.parse(e.data);
   lastT = m.t || lastT;
-  if (m.frame) {
-    img.onload = () => cx.drawImage(img, 0, 0, cv.width, cv.height);
-    img.src = "data:image/jpeg;base64," + m.frame;
+  if (m.site) {
+    siteMeta = m.site;
+    document.getElementById("sitelabel").textContent = m.site.label || "";
+    document.getElementById("camcount").textContent = (m.site.cameras || 0) + " LIVE";
+    document.getElementById("warntitle").textContent = m.site.warn_title || "ALERTS";
+    document.getElementById("patitle").textContent = m.site.pa_title || "PA";
   }
+  if (m.cameras) {
+    ensureGrid(m.cameras, m.view || m.site?.id || "family");
+    drawCams(m.cameras);
+  }
+  if (m.tabs) renderTabs(m.tabs, m.view || m.site?.id);
   const unacked = (m.warning?.alerts || []).filter(a => !a.acked);
-  setMode(unacked.length > 0);
+  const hot = (m.cameras || []).find(c => c.incident)?.id;
+  setMode(unacked.length > 0, hot);
   renderWarning(m.warning);
   renderTimeline(m.events || []);
   lifecycle(m.warning, m.events || []);
   renderCountdown(m.warning);
+  renderTools(m.tools);
 };
 
 document.getElementById("ackbtn").onclick = async () => {
-  const ids = currentAlertIds.slice();
-  for (const id of ids) {
+  for (const id of currentAlertIds.slice()) {
     await fetch(`/api/ack/${id}`, { method: "POST" });
   }
 };
@@ -457,13 +558,13 @@ document.getElementById("ask").onclick = async () => {
     r.answer.replace(/\n/g, "<br>") +
     (r.results || []).map(h => `<div class="hit">T+${h.t.toFixed(1)}s · ${h.type}</div>`).join("");
 };
-
 setInterval(() => {
   const m = Math.floor(lastT / 60);
   const s = Math.floor(lastT % 60);
   document.getElementById("clock").textContent =
     String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
 }, 200);
+loadSites("family");
 </script>
 </body>
 </html>

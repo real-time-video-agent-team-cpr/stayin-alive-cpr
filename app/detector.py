@@ -1,16 +1,14 @@
 """Detector interface.
 
-SimulatedDetector (default) emits scripted person boxes from the synthetic
-scenario — this is what the demo runs on. YoloDetector runs real YOLOv8
-person detection + tracking on a video file, webcam, or stream URL
-(requires `pip install ultralytics`; never imported unless selected).
+SimulatedDetector wraps a CameraScene. YoloDetector runs YOLOv8 on a real
+file / webcam / VAST URL. tools.refine_with_yolo can also overlay YOLO on
+simulated frames when ultralytics is installed.
 """
-from .scenario import Scenario
+from .scenario import CameraScene, Scenario
 
 
 class BaseDetector:
     def next(self):
-        """Return (frame, detections, t, looped)."""
         raise NotImplementedError
 
     def clock(self):
@@ -18,8 +16,8 @@ class BaseDetector:
 
 
 class SimulatedDetector(BaseDetector):
-    def __init__(self):
-        self.sc = Scenario()
+    def __init__(self, spec=None):
+        self.sc = CameraScene(spec) if spec else Scenario()
 
     def next(self):
         return self.sc.next()
@@ -42,7 +40,7 @@ class YoloDetector(BaseDetector):
 
         self._cv2 = cv2
         self._time = time
-        self.model = YOLO("yolov8n.pt")  # downloads on first run
+        self.model = YOLO("yolov8n.pt")
         if video_path:
             self.cap = cv2.VideoCapture(video_path)
         else:

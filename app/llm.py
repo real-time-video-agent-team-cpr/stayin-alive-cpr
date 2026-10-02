@@ -72,24 +72,44 @@ class AlertComposer:
         fallback = (
             f"[{event['severity']}] {event['type'].replace('_', ' ')} — "
             f"{event['caption']} at T+{event['t']:.1f}s on {where}. "
-            f"Lifeguard response required."
+            f"Immediate response required."
         )
         try:
-            return self._call([
+            text = self._call([
                 {"role": "system",
-                 "content": "You write terse lifeguard dispatch alerts. "
+                 "content": "You write terse lifeguard/parent dispatch alerts. "
                             "One or two sentences, urgent, no fluff."},
                 {"role": "user",
                  "content": f"Write a dispatch alert: {event['type']}, "
                             f"{event['caption']}, severity {event['severity']}, "
                             f"camera {where}."},
             ])
+            from . import tools
+            tools._set("wandb", "live", "composed dispatch copy")
+            return text
         except Exception:
-            return fallback  # template fallback (SIMULATED copy)
+            return fallback
 
     def answer(self, query, events):
         hits = semantic_search(query, events)
         if not hits:
-            return "No matching moments in the event index."
-        lines = [f"T+{e['t']:.1f}s — {e['caption']}" for e in hits]
-        return "Matching moments:\n" + "\n".join(lines)
+            local = "No matching moments in the event index."
+        else:
+            lines = [f"T+{e['t']:.1f}s — {e['caption']}" for e in hits]
+            local = "Matching moments:\n" + "\n".join(lines)
+        try:
+            catalog = "\n".join(
+                f"T+{e['t']:.1f}s {e['type']} {e.get('camera','')} {e['caption']}"
+                for e in events[-30:]
+            )
+            text = self._call([
+                {"role": "system",
+                 "content": "You retrieve moments from a lifeguard event log. "
+                            "Answer with timestamps. If unknown, say so."},
+                {"role": "user", "content": f"Query: {query}\nLog:\n{catalog}"},
+            ])
+            from . import tools
+            tools._set("wandb", "live", "answered footage query")
+            return text
+        except Exception:
+            return local

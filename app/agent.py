@@ -15,8 +15,12 @@ EDGE_BAND = 45.0        # px from pool border counts as "at the edge"
 
 
 class Agent:
-    def __init__(self, pool=(180, 110, 500, 390)):
+    def __init__(self, pool=(180, 110, 500, 390), camera="cam-01",
+                 entry_phrase="the pool edge", water_noun="water"):
         self.pool = pool
+        self.camera = camera
+        self.entry_phrase = entry_phrase
+        self.water_noun = water_noun
         self.hist = defaultdict(deque)   # tid -> deque of (t, cx, cy)
         self.in_water = {}               # tid -> bool
         self.entered_at = {}             # tid -> t of water entry
@@ -53,7 +57,7 @@ class Agent:
         self._eid += 1
         ev = {"id": self._eid, "type": etype, "t": round(t, 1), "track_id": tid,
               "confidence": conf, "caption": caption, "severity": severity,
-              "verified": None}
+              "verified": None, "camera": self.camera}
         self.last_fired[key] = t
         self.events.append(ev)
         return ev
@@ -69,18 +73,26 @@ class Agent:
             while h and t - h[0][0] > STILL_WIN + 2:
                 h.popleft()
 
-            prev = self.in_water.get(tid, False)
             now = d["in_water"]
+            first_seen = tid not in self.in_water
+            prev = self.in_water.get(tid, False)
+
+            if first_seen:
+                # First observation: already-in-water tracks are swimmers, not falls.
+                self.in_water[tid] = now
+                if now:
+                    self.entered_at[tid] = t
+                continue
 
             if now and not prev:
-                # --- ENTRY: water crossing ---
                 self.entered_at[tid] = t
                 spd = self._window_speed(h, t, 1.5) or 0.0
                 at_edge = self._near_edge(d["cx"], d["cy"])
                 conf = 0.92 if (at_edge or spd > 80) else 0.65
                 ev = self._fire(
                     t, tid, "FALL_DETECTED", conf,
-                    f"Person entered the water at the pool edge (track {tid})",
+                    f"Person entered the {self.water_noun} at {self.entry_phrase} "
+                    f"({self.camera} track {tid})",
                     "HIGH" if conf >= 0.8 else "MEDIUM",
                 )
                 if ev:
@@ -92,7 +104,8 @@ class Agent:
                 if in_water_for >= 2.0 and v3 is not None and v3 > STRUGGLE_SPEED:
                     ev = self._fire(
                         t, tid, "STRUGGLE", 0.85,
-                        f"Erratic movement in water — possible struggle (track {tid})",
+                        f"Erratic movement in {self.water_noun} — possible struggle "
+                        f"({self.camera} track {tid})",
                         "HIGH",
                     )
                     if ev:
@@ -101,8 +114,8 @@ class Agent:
                 if in_water_for >= STILL_WIN and v8 is not None and v8 < STILL_SPEED:
                     ev = self._fire(
                         t, tid, "POSSIBLE_DROWNING", 0.88,
-                        f"Person motionless in water for {int(STILL_WIN)}+ seconds "
-                        f"(track {tid})",
+                        f"Person motionless in {self.water_noun} for {int(STILL_WIN)}+ seconds "
+                        f"({self.camera} track {tid})",
                         "CRITICAL",
                     )
                     if ev:
